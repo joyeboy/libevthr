@@ -2,8 +2,8 @@ SRC      = evthr.c
 OUT      = libevthr.a
 OBJ      = $(SRC:.c=.o)
 INCLUDES = -I.
-CFLAGS   += -Wall
-LDFLAGS  += -g
+CFLAGS   += -Wall -ggdb
+LDFLAGS  += -ggdb
 CC       = gcc
 
 .SUFFIXES: .c

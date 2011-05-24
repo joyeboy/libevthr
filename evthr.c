@@ -104,7 +104,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
     }
 
     if (cmd.cb != NULL) {
-        cmd.cb(cmd.args, thread->args);
+        cmd.cb(thread->evbase, cmd.args, thread->args);
         goto end;
     }
 

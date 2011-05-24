@@ -16,7 +16,7 @@ typedef struct evthr_pool evthr_pool_t;
 typedef struct evthr      evthr_t;
 typedef enum evthr_res    evthr_res;
 
-typedef void (*evthr_cb)(void * cmd_arg, void * shared);
+typedef void (*evthr_cb)(evbase_t * base, void * cmd_arg, void * shared);
 
 enum evthr_res {
     EVTHR_RES_OK = 0,

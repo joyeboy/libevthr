@@ -8,7 +8,7 @@
 #include <evthr.h>
 
 static void
-_test_cb_1(void * cmdarg, void * shared) {
+_test_cb_1(evbase_t * evbase, void * cmdarg, void * shared) {
     printf("START _test_cb_1 (%u)\n", (unsigned int)pthread_self());
     sleep(1);
     printf("END   _test_cb_1 (%u)\n", (unsigned int)pthread_self());
@@ -20,6 +20,7 @@ main(int argc, char ** argv) {
     int            i    = 0;
 
     evthread_use_pthreads();
+    evthread_enable_lock_debuging();
     pool = evthr_pool_new(2, 5, NULL);
 
     evthr_pool_start(pool);
