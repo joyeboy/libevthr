@@ -43,6 +43,7 @@ struct evthr {
     char              err;
     ev_t            * event;
     evbase_t        * evbase;
+    evbase_t        * cb_base;
     pthread_mutex_t * lock;
     pthread_mutex_t * stat_lock;
     pthread_mutex_t * rlock;
@@ -104,7 +105,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
     }
 
     if (cmd.cb != NULL) {
-        cmd.cb(thread->evbase, cmd.args, thread->args);
+        cmd.cb(thread->cb_base, cmd.args, thread->args);
         goto end;
     }
 
@@ -118,8 +119,8 @@ end:
     return;
 error:
     pthread_mutex_lock(thread->stat_lock);
-    thread->cur_backlog  = -1;
-    thread->err          = 1;
+    thread->cur_backlog = -1;
+    thread->err         = 1;
     pthread_mutex_unlock(thread->stat_lock);
     pthread_mutex_unlock(thread->lock);
     event_base_loopbreak(thread->evbase);
@@ -134,8 +135,9 @@ _evthr_loop(void * args) {
         return NULL;
     }
 
-    thread->evbase = event_base_new();
-    thread->event  = event_new(thread->evbase, thread->rdr,
+    thread->evbase  = event_base_new();
+    thread->cb_base = event_base_new();
+    thread->event   = event_new(thread->evbase, thread->rdr,
         EV_READ | EV_PERSIST, _evthr_read_cmd, args);
 
     event_add(thread->event, NULL);
@@ -168,10 +170,10 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
 
     pthread_mutex_unlock(thread->stat_lock);
 
-    cmd.magic            = _EVTHR_MAGIC;
-    cmd.cb               = cb;
-    cmd.args             = arg;
-    cmd.stop             = 0;
+    cmd.magic = _EVTHR_MAGIC;
+    cmd.cb    = cb;
+    cmd.args  = arg;
+    cmd.stop  = 0;
 
     pthread_mutex_lock(thread->rlock);
 
@@ -434,3 +436,4 @@ evthr_pool_start(evthr_pool_t * pool) {
 
     return 0;
 }
+
