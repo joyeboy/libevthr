@@ -26,13 +26,13 @@ enum evthr_res {
     EVTHR_RES_FATAL
 };
 
-evthr_t      * evthr_new(int backlog, void * arg);
+evthr_t      * evthr_new(void * arg);
 int            evthr_start(evthr_t * evthr);
 evthr_res      evthr_stop(evthr_t * evthr);
 evthr_res      evthr_defer(evthr_t * evthr, evthr_cb cb, void * arg);
 void           evthr_free(evthr_t * evthr);
 
-evthr_pool_t * evthr_pool_new(int nthreads, int backlog, void * shared);
+evthr_pool_t * evthr_pool_new(int nthreads, void * shared);
 int            evthr_pool_start(evthr_pool_t * pool);
 evthr_res      evthr_pool_stop(evthr_pool_t * pool);
 evthr_res      evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg);

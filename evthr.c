@@ -37,7 +37,6 @@ struct evthr_pool {
 
 struct evthr {
     int               cur_backlog;
-    int               max_backlog;
     int               rdr;
     int               wdr;
     char              err;
@@ -82,9 +81,13 @@ _evthr_read_cmd(int sock, short which, void * args) {
 
     pthread_mutex_lock(thread->rlock);
 
-    if ((recvd = read(sock, &cmd, sizeof(evthr_cmd_t))) <= 0) {
+    if ((recvd = recv(sock, &cmd, sizeof(evthr_cmd_t), 0)) <= 0) {
         pthread_mutex_unlock(thread->rlock);
-        goto error;
+        if (errno == EAGAIN) {
+            goto end;
+        } else {
+            goto error;
+        }
     }
 
     pthread_mutex_unlock(thread->rlock);
@@ -161,11 +164,6 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
         return EVTHR_RES_FATAL;
     }
 
-    if (thread->cur_backlog >= thread->max_backlog) {
-        pthread_mutex_unlock(thread->stat_lock);
-        return EVTHR_RES_BACKLOG;
-    }
-
     thread->cur_backlog += 1;
 
     pthread_mutex_unlock(thread->stat_lock);
@@ -177,7 +175,7 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
 
     pthread_mutex_lock(thread->rlock);
 
-    if (write(thread->wdr, &cmd, sizeof(evthr_cmd_t)) <= 0) {
+    if (send(thread->wdr, &cmd, sizeof(evthr_cmd_t), 0) <= 0) {
         pthread_mutex_unlock(thread->rlock);
         return EVTHR_RES_RETRY;
     }
@@ -209,11 +207,11 @@ evthr_stop(evthr_t * thread) {
 }
 
 evthr_t *
-evthr_new(int backlog, void * args) {
+evthr_new(void * args) {
     evthr_t * thread;
     int       fds[2];
 
-    if (pipe(fds) == -1) {
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == -1) {
         return NULL;
     }
 
@@ -221,14 +219,13 @@ evthr_new(int backlog, void * args) {
         return NULL;
     }
 
-    thread->stat_lock   = malloc(sizeof(pthread_mutex_t));
-    thread->rlock       = malloc(sizeof(pthread_mutex_t));
-    thread->lock        = malloc(sizeof(pthread_mutex_t));
-    thread->thr         = malloc(sizeof(pthread_t));
-    thread->max_backlog = backlog;
-    thread->args        = args;
-    thread->rdr         = fds[0];
-    thread->wdr         = fds[1];
+    thread->stat_lock = malloc(sizeof(pthread_mutex_t));
+    thread->rlock     = malloc(sizeof(pthread_mutex_t));
+    thread->lock      = malloc(sizeof(pthread_mutex_t));
+    thread->thr       = malloc(sizeof(pthread_t));
+    thread->args      = args;
+    thread->rdr       = fds[0];
+    thread->wdr       = fds[1];
 
     if (pthread_mutex_init(thread->lock, NULL)) {
         evthr_free(thread);
@@ -398,7 +395,7 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
 } /* evthr_pool_defer */
 
 evthr_pool_t *
-evthr_pool_new(int nthreads, int backlog, void * shared) {
+evthr_pool_new(int nthreads, void * shared) {
     evthr_pool_t * pool;
     int            i;
 
@@ -416,7 +413,7 @@ evthr_pool_new(int nthreads, int backlog, void * shared) {
     for (i = 0; i < nthreads; i++) {
         evthr_t * thread;
 
-        if (!(thread = evthr_new(backlog, shared))) {
+        if (!(thread = evthr_new(shared))) {
             evthr_pool_free(pool);
             return NULL;
         }
