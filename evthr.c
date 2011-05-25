@@ -65,9 +65,6 @@ _evthr_read_cmd(int sock, short which, void * args) {
     }
 
     if (pthread_mutex_trylock(thread->lock) != 0) {
-        pthread_mutex_lock(thread->stat_lock);
-        thread->cur_backlog -= 1;
-        pthread_mutex_unlock(thread->stat_lock);
         return;
     }
 
@@ -106,15 +103,18 @@ _evthr_read_cmd(int sock, short which, void * args) {
 
     if (cmd.cb != NULL) {
         cmd.cb(thread->cb_base, cmd.args, thread->args);
-        goto end;
+        goto done;
+    } else {
+        goto done;
     }
 
 stop:
     event_base_loopbreak(thread->evbase);
-end:
+done:
     pthread_mutex_lock(thread->stat_lock);
     thread->cur_backlog -= 1;
     pthread_mutex_unlock(thread->stat_lock);
+end:
     pthread_mutex_unlock(thread->lock);
     return;
 error:
@@ -360,6 +360,7 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
     TAILQ_FOREACH(thr, &pool->threads, next) {
         evthr_t * m_save;
         evthr_t * t_save;
+        int       break_early = 0;
 
         pthread_mutex_lock(thr->stat_lock);
 
@@ -378,11 +379,19 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
             min_thr = thr;
         }
 
+        if (min_thr->cur_backlog == 0) {
+            break_early = 1;
+        }
+
         if (m_save) {
             pthread_mutex_unlock(m_save->stat_lock);
         }
 
         pthread_mutex_unlock(t_save->stat_lock);
+
+        if (break_early == 1) {
+            break;
+        }
     }
 
     return evthr_defer(min_thr, cb, arg);
