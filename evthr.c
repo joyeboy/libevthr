@@ -45,6 +45,7 @@ struct evthr {
     evbase_t        * cb_base;
     pthread_mutex_t * lock;
     pthread_mutex_t * stat_lock;
+    pthread_mutex_t * rlock;
     pthread_t       * thr;
     void            * args;
 
@@ -78,13 +79,18 @@ _evthr_read_cmd(int sock, short which, void * args) {
         goto end;
     }
 
+    pthread_mutex_lock(thread->rlock);
+
     if ((recvd = recv(sock, &cmd, sizeof(evthr_cmd_t), 0)) <= 0) {
+        pthread_mutex_unlock(thread->rlock);
         if (errno == EAGAIN) {
             goto end;
         } else {
             goto error;
         }
     }
+
+    pthread_mutex_unlock(thread->rlock);
 
     if (recvd != sizeof(evthr_cmd_t)) {
         goto error;
@@ -167,9 +173,14 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
     cmd.args  = arg;
     cmd.stop  = 0;
 
+    pthread_mutex_lock(thread->rlock);
+
     if (send(thread->wdr, &cmd, sizeof(evthr_cmd_t), 0) <= 0) {
+        pthread_mutex_unlock(thread->rlock);
         return EVTHR_RES_RETRY;
     }
+
+    pthread_mutex_unlock(thread->rlock);
 
     return EVTHR_RES_OK;
 }
@@ -183,9 +194,14 @@ evthr_stop(evthr_t * thread) {
     cmd.args  = NULL;
     cmd.stop  = 1;
 
+    pthread_mutex_lock(thread->rlock);
+
     if (write(thread->wdr, &cmd, sizeof(evthr_cmd_t)) < 0) {
+        pthread_mutex_unlock(thread->rlock);
         return EVTHR_RES_RETRY;
     }
+
+    pthread_mutex_unlock(thread->rlock);
 
     return EVTHR_RES_OK;
 }
@@ -204,6 +220,7 @@ evthr_new(void * args) {
     }
 
     thread->stat_lock = malloc(sizeof(pthread_mutex_t));
+    thread->rlock     = malloc(sizeof(pthread_mutex_t));
     thread->lock      = malloc(sizeof(pthread_mutex_t));
     thread->thr       = malloc(sizeof(pthread_t));
     thread->args      = args;
@@ -216,6 +233,11 @@ evthr_new(void * args) {
     }
 
     if (pthread_mutex_init(thread->stat_lock, NULL)) {
+        evthr_free(thread);
+        return NULL;
+    }
+
+    if (pthread_mutex_init(thread->rlock, NULL)) {
         evthr_free(thread);
         return NULL;
     }
@@ -260,6 +282,10 @@ evthr_free(evthr_t * thread) {
 
     if (thread->stat_lock) {
         pthread_mutex_destroy(thread->stat_lock);
+    }
+
+    if (thread->rlock) {
+        pthread_mutex_destroy(thread->rlock);
     }
 
     if (thread->thr) {
