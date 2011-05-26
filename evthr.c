@@ -391,6 +391,9 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
         }
     }
 
+    TAILQ_REMOVE(&pool->threads, min_thr, next);
+    TAILQ_INSERT_TAIL(&pool->threads, min_thr, next);
+
     return evthr_defer(min_thr, cb, arg);
 } /* evthr_pool_defer */
 
