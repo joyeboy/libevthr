@@ -53,6 +53,21 @@ struct evthr {
 };
 
 static void
+_evthr_inc_backlog(evthr_t * evthr) {
+    __sync_fetch_and_add(&evthr->cur_backlog, 1);
+}
+
+static void
+_evthr_dec_backlog(evthr_t * evthr) {
+    __sync_fetch_and_sub(&evthr->cur_backlog, 1);
+}
+
+static int
+_evthr_get_backlog(evthr_t * evthr) {
+    return __sync_add_and_fetch(&evthr->cur_backlog, 0);
+}
+
+static void
 _evthr_read_cmd(int sock, short which, void * args) {
     evthr_t   * thread;
     evthr_cmd_t cmd;
@@ -114,9 +129,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
 stop:
     event_base_loopbreak(thread->evbase);
 done:
-    pthread_mutex_lock(thread->stat_lock);
-    thread->cur_backlog -= 1;
-    pthread_mutex_unlock(thread->stat_lock);
+    _evthr_dec_backlog(thread);
 end:
     pthread_mutex_unlock(thread->lock);
     return;
@@ -156,17 +169,16 @@ _evthr_loop(void * args) {
 
 evthr_res
 evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
+    int         cur_backlog;
     evthr_cmd_t cmd = { 0 };
 
-    pthread_mutex_lock(thread->stat_lock);
+    cur_backlog = _evthr_get_backlog(thread);
 
-    if (thread->cur_backlog == -1) {
+    if (cur_backlog == -1) {
         return EVTHR_RES_FATAL;
     }
 
-    thread->cur_backlog += 1;
-
-    pthread_mutex_unlock(thread->stat_lock);
+    _evthr_inc_backlog(thread);
 
     cmd.magic = _EVTHR_MAGIC;
     cmd.cb    = cb;
@@ -357,12 +369,13 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
     TAILQ_FOREACH(thr, &pool->threads, next) {
         evthr_t * m_save;
         evthr_t * t_save;
-        int       break_early = 0;
+        int       thr_backlog = 0;
+        int       min_backlog = 0;
 
-        pthread_mutex_lock(thr->stat_lock);
+        thr_backlog = _evthr_get_backlog(thr);
 
         if (min_thr) {
-            pthread_mutex_lock(min_thr->stat_lock);
+            min_backlog = _evthr_get_backlog(min_thr);
         }
 
         m_save = min_thr;
@@ -370,23 +383,13 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
 
         if (min_thr == NULL) {
             min_thr = thr;
-        } else if (thr->cur_backlog == 0) {
+        } else if (thr_backlog == 0) {
             min_thr = thr;
-        } else if (thr->cur_backlog < min_thr->cur_backlog) {
+        } else if (thr_backlog < min_backlog) {
             min_thr = thr;
         }
 
-        if (min_thr->cur_backlog == 0) {
-            break_early = 1;
-        }
-
-        if (m_save) {
-            pthread_mutex_unlock(m_save->stat_lock);
-        }
-
-        pthread_mutex_unlock(t_save->stat_lock);
-
-        if (break_early == 1) {
+        if (_evthr_get_backlog(min_thr) == 0) {
             break;
         }
     }
