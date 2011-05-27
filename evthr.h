@@ -1,6 +1,8 @@
+#define _GNU_SOURCE
 #ifndef __EVTHR_H__
 #define __EVTHR_H__
 
+#include <sched.h>
 #include <pthread.h>
 #include <sys/queue.h>
 #include <event.h>
@@ -26,7 +28,7 @@ enum evthr_res {
     EVTHR_RES_FATAL
 };
 
-evthr_t      * evthr_new(void * arg);
+evthr_t      * evthr_new(void * arg, int proc_to_use);
 int            evthr_start(evthr_t * evthr);
 evthr_res      evthr_stop(evthr_t * evthr);
 evthr_res      evthr_defer(evthr_t * evthr, evthr_cb cb, void * arg);

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sched.h>
+#include <sys/syscall.h>
 #include <sys/ioctl.h>
 #include <sys/queue.h>
 #include <pthread.h>
@@ -32,11 +35,13 @@ TAILQ_HEAD(evthr_pool_slist, evthr);
 
 struct evthr_pool {
     int                nthreads;
+    int                nprocs;
     evthr_pool_slist_t threads;
 };
 
 struct evthr {
     int               cur_backlog;
+    int               proc_to_use;
     int               rdr;
     int               wdr;
     char              err;
@@ -143,13 +148,32 @@ error:
     return;
 } /* _evthr_read_cmd */
 
+static int
+_evthr_get_num_procs(void) {
+    return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
 static void *
 _evthr_loop(void * args) {
     evthr_t * thread;
+    cpu_set_t set;
+    pid_t     pid;
 
     if (!(thread = (evthr_t *)args)) {
         return NULL;
     }
+
+    if (thread == NULL || thread->thr == NULL) {
+        pthread_exit(NULL);
+    }
+
+    CPU_ZERO(&set);
+    CPU_SET(thread->proc_to_use, &set);
+
+    pid = syscall(__NR_gettid);
+    sched_setaffinity(pid, sizeof(cpu_set_t), &set);
+
+    printf("Running on proc %d\n", thread->proc_to_use);
 
     thread->evbase  = event_base_new();
     thread->cb_base = event_base_new();
@@ -219,7 +243,7 @@ evthr_stop(evthr_t * thread) {
 }
 
 evthr_t *
-evthr_new(void * args) {
+evthr_new(void * args, int proc_to_use) {
     evthr_t * thread;
     int       fds[2];
 
@@ -231,13 +255,14 @@ evthr_new(void * args) {
         return NULL;
     }
 
-    thread->stat_lock = malloc(sizeof(pthread_mutex_t));
-    thread->rlock     = malloc(sizeof(pthread_mutex_t));
-    thread->lock      = malloc(sizeof(pthread_mutex_t));
-    thread->thr       = malloc(sizeof(pthread_t));
-    thread->args      = args;
-    thread->rdr       = fds[0];
-    thread->wdr       = fds[1];
+    thread->stat_lock   = malloc(sizeof(pthread_mutex_t));
+    thread->rlock       = malloc(sizeof(pthread_mutex_t));
+    thread->lock        = malloc(sizeof(pthread_mutex_t));
+    thread->thr         = malloc(sizeof(pthread_t));
+    thread->args        = args;
+    thread->rdr         = fds[0];
+    thread->wdr         = fds[1];
+    thread->proc_to_use = proc_to_use;
 
     if (pthread_mutex_init(thread->lock, NULL)) {
         evthr_free(thread);
@@ -410,13 +435,15 @@ evthr_pool_new(int nthreads, void * shared) {
         return NULL;
     }
 
+    pool->nprocs   = _evthr_get_num_procs();
     pool->nthreads = nthreads;
     TAILQ_INIT(&pool->threads);
 
     for (i = 0; i < nthreads; i++) {
         evthr_t * thread;
+        int       proc = i % pool->nprocs;
 
-        if (!(thread = evthr_new(shared))) {
+        if (!(thread = evthr_new(shared, proc))) {
             evthr_pool_free(pool);
             return NULL;
         }

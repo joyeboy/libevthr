@@ -21,7 +21,7 @@ main(int argc, char ** argv) {
 
     evthread_use_pthreads();
     evthread_enable_lock_debuging();
-    pool = evthr_pool_new(2, 5, NULL);
+    pool = evthr_pool_new(8, NULL);
 
     evthr_pool_start(pool);
 
