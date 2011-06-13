@@ -166,6 +166,7 @@ _evthr_loop(void * args) {
         pthread_exit(NULL);
     }
 
+#if 0
     CPU_ZERO(&set);
     CPU_SET(thread->proc_to_use, &set);
 
@@ -173,6 +174,7 @@ _evthr_loop(void * args) {
     sched_setaffinity(pid, sizeof(cpu_set_t), &set);
 
     printf("Running on proc %d\n", thread->proc_to_use);
+#endif
 
     thread->evbase = event_base_new();
     thread->event  = event_new(thread->evbase, thread->rdr,
