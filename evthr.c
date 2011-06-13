@@ -47,7 +47,6 @@ struct evthr {
     char              err;
     ev_t            * event;
     evbase_t        * evbase;
-    evbase_t        * cb_base;
     pthread_mutex_t * lock;
     pthread_mutex_t * stat_lock;
     pthread_mutex_t * rlock;
@@ -125,7 +124,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
     }
 
     if (cmd.cb != NULL) {
-        cmd.cb(thread->cb_base, cmd.args, thread->args);
+        cmd.cb(thread->evbase, cmd.args, thread->args);
         goto done;
     } else {
         goto done;
@@ -176,7 +175,6 @@ _evthr_loop(void * args) {
     printf("Running on proc %d\n", thread->proc_to_use);
 
     thread->evbase  = event_base_new();
-    thread->cb_base = event_base_new();
     thread->event   = event_new(thread->evbase, thread->rdr,
         EV_READ | EV_PERSIST, _evthr_read_cmd, args);
 
