@@ -29,6 +29,7 @@ enum evthr_res {
 };
 
 evthr_t      * evthr_new(void * arg, int proc_to_use);
+evbase_t     * evthr_get_base(evthr_t * thr);
 int            evthr_start(evthr_t * evthr);
 evthr_res      evthr_stop(evthr_t * evthr);
 evthr_res      evthr_defer(evthr_t * evthr, evthr_cb cb, void * arg);
