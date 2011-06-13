@@ -56,18 +56,18 @@ struct evthr {
     TAILQ_ENTRY(evthr) next;
 };
 
-static void
-_evthr_inc_backlog(evthr_t * evthr) {
+void
+evthr_inc_backlog(evthr_t * evthr) {
     __sync_fetch_and_add(&evthr->cur_backlog, 1);
 }
 
-static void
-_evthr_dec_backlog(evthr_t * evthr) {
+void
+evthr_dec_backlog(evthr_t * evthr) {
     __sync_fetch_and_sub(&evthr->cur_backlog, 1);
 }
 
-static int
-_evthr_get_backlog(evthr_t * evthr) {
+int
+evthr_get_backlog(evthr_t * evthr) {
     return __sync_add_and_fetch(&evthr->cur_backlog, 0);
 }
 
@@ -124,7 +124,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
     }
 
     if (cmd.cb != NULL) {
-        cmd.cb(thread->evbase, cmd.args, thread->args);
+        cmd.cb(thread, cmd.args, thread->args);
         goto done;
     } else {
         goto done;
@@ -133,7 +133,7 @@ _evthr_read_cmd(int sock, short which, void * args) {
 stop:
     event_base_loopbreak(thread->evbase);
 done:
-    _evthr_dec_backlog(thread);
+    evthr_dec_backlog(thread);
 end:
     pthread_mutex_unlock(thread->lock);
     return;
@@ -174,8 +174,8 @@ _evthr_loop(void * args) {
 
     printf("Running on proc %d\n", thread->proc_to_use);
 
-    thread->evbase  = event_base_new();
-    thread->event   = event_new(thread->evbase, thread->rdr,
+    thread->evbase = event_base_new();
+    thread->event  = event_new(thread->evbase, thread->rdr,
         EV_READ | EV_PERSIST, _evthr_read_cmd, args);
 
     event_add(thread->event, NULL);
@@ -194,13 +194,13 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
     int         cur_backlog;
     evthr_cmd_t cmd = { 0 };
 
-    cur_backlog = _evthr_get_backlog(thread);
+    cur_backlog = evthr_get_backlog(thread);
 
     if (cur_backlog == -1) {
         return EVTHR_RES_FATAL;
     }
 
-    _evthr_inc_backlog(thread);
+    evthr_inc_backlog(thread);
 
     cmd.magic = _EVTHR_MAGIC;
     cmd.cb    = cb;
@@ -238,6 +238,11 @@ evthr_stop(evthr_t * thread) {
     pthread_mutex_unlock(thread->rlock);
 
     return EVTHR_RES_OK;
+}
+
+evbase_t *
+evthr_get_base(evthr_t * thr) {
+    return thr->evbase;
 }
 
 evthr_t *
@@ -395,10 +400,10 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
         int       thr_backlog = 0;
         int       min_backlog = 0;
 
-        thr_backlog = _evthr_get_backlog(thr);
+        thr_backlog = evthr_get_backlog(thr);
 
         if (min_thr) {
-            min_backlog = _evthr_get_backlog(min_thr);
+            min_backlog = evthr_get_backlog(min_thr);
         }
 
         m_save = min_thr;
@@ -412,7 +417,7 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
             min_thr = thr;
         }
 
-        if (_evthr_get_backlog(min_thr) == 0) {
+        if (evthr_get_backlog(min_thr) == 0) {
             break;
         }
     }

@@ -18,7 +18,7 @@ typedef struct evthr_pool evthr_pool_t;
 typedef struct evthr      evthr_t;
 typedef enum evthr_res    evthr_res;
 
-typedef void (*evthr_cb)(evbase_t * base, void * cmd_arg, void * shared);
+typedef void (*evthr_cb)(evthr_t * thr, void * cmd_arg, void * shared);
 
 enum evthr_res {
     EVTHR_RES_OK = 0,
@@ -33,6 +33,9 @@ int            evthr_start(evthr_t * evthr);
 evthr_res      evthr_stop(evthr_t * evthr);
 evthr_res      evthr_defer(evthr_t * evthr, evthr_cb cb, void * arg);
 void           evthr_free(evthr_t * evthr);
+void           evthr_inc_backlog(evthr_t * evthr);
+void           evthr_dec_backlog(evthr_t * evthr);
+int            evthr_get_backlog(evthr_t * evthr);
 
 evthr_pool_t * evthr_pool_new(int nthreads, void * shared);
 int            evthr_pool_start(evthr_pool_t * pool);

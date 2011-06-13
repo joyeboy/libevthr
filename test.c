@@ -8,7 +8,7 @@
 #include <evthr.h>
 
 static void
-_test_cb_1(evbase_t * evbase, void * cmdarg, void * shared) {
+_test_cb_1(evthr_t * thr, void * cmdarg, void * shared) {
     printf("START _test_cb_1 (%u)\n", (unsigned int)pthread_self());
     sleep(1);
     printf("END   _test_cb_1 (%u)\n", (unsigned int)pthread_self());
