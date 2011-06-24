@@ -155,8 +155,6 @@ _evthr_get_num_procs(void) {
 static void *
 _evthr_loop(void * args) {
     evthr_t * thread;
-    cpu_set_t set;
-    pid_t     pid;
 
     if (!(thread = (evthr_t *)args)) {
         return NULL;
@@ -165,16 +163,6 @@ _evthr_loop(void * args) {
     if (thread == NULL || thread->thr == NULL) {
         pthread_exit(NULL);
     }
-
-#if 0
-    CPU_ZERO(&set);
-    CPU_SET(thread->proc_to_use, &set);
-
-    pid = syscall(__NR_gettid);
-    sched_setaffinity(pid, sizeof(cpu_set_t), &set);
-
-    printf("Running on proc %d\n", thread->proc_to_use);
-#endif
 
     thread->evbase = event_base_new();
     thread->event  = event_new(thread->evbase, thread->rdr,
