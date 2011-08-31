@@ -6,12 +6,11 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <errno.h>
-#include <unistd.h>
 #include <fcntl.h>
-#include <sched.h>
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
 #include <sys/queue.h>
+#include <unistd.h>
 #include <pthread.h>
 
 #include <event.h>
@@ -25,7 +24,7 @@
 #define __unused__
 #endif
 
-#define _EVTHR_MAGIC 0x4d52
+#define _EVTHR_MAGIC 0x03fb
 
 typedef struct evthr_cmd        evthr_cmd_t;
 typedef struct evthr_pool_slist evthr_pool_slist_t;
@@ -41,13 +40,11 @@ TAILQ_HEAD(evthr_pool_slist, evthr);
 
 struct evthr_pool {
     int                nthreads;
-    int                nprocs;
     evthr_pool_slist_t threads;
 };
 
 struct evthr {
     int               cur_backlog;
-    int               proc_to_use;
     int               rdr;
     int               wdr;
     char              err;
@@ -57,7 +54,9 @@ struct evthr {
     pthread_mutex_t * stat_lock;
     pthread_mutex_t * rlock;
     pthread_t       * thr;
-    void            * args;
+    evthr_init_cb     init_cb;
+    void            * arg;
+    void            * aux;
 
     TAILQ_ENTRY(evthr) next;
 };
@@ -130,7 +129,7 @@ _evthr_read_cmd(int sock, short __unused__ which, void * args) {
     }
 
     if (cmd.cb != NULL) {
-        cmd.cb(thread, cmd.args, thread->args);
+        cmd.cb(thread, cmd.args, thread->arg);
         goto done;
     } else {
         goto done;
@@ -153,11 +152,6 @@ error:
     return;
 } /* _evthr_read_cmd */
 
-static int
-_evthr_get_num_procs(void) {
-    return sysconf(_SC_NPROCESSORS_ONLN);
-}
-
 static void *
 _evthr_loop(void * args) {
     evthr_t * thread;
@@ -175,6 +169,13 @@ _evthr_loop(void * args) {
                                EV_READ | EV_PERSIST, _evthr_read_cmd, args);
 
     event_add(thread->event, NULL);
+
+    pthread_mutex_lock(thread->lock);
+    if (thread->init_cb != NULL) {
+        thread->init_cb(thread, thread->arg);
+    }
+    pthread_mutex_unlock(thread->lock);
+
     event_base_loop(thread->evbase, 0);
 
     if (thread->err == 1) {
@@ -205,7 +206,7 @@ evthr_defer(evthr_t * thread, evthr_cb cb, void * arg) {
 
     pthread_mutex_lock(thread->rlock);
 
-    if (send(thread->wdr, &cmd, sizeof(evthr_cmd_t), 0) <= 0) {
+    if (send(thread->wdr, &cmd, sizeof(cmd), 0) <= 0) {
         pthread_mutex_unlock(thread->rlock);
         return EVTHR_RES_RETRY;
     }
@@ -241,8 +242,18 @@ evthr_get_base(evthr_t * thr) {
     return thr->evbase;
 }
 
+void
+evthr_set_aux(evthr_t * thr, void * aux) {
+    thr->aux = aux;
+}
+
+void *
+evthr_get_aux(evthr_t * thr) {
+    return thr->aux;
+}
+
 evthr_t *
-evthr_new(void * args, int proc_to_use) {
+evthr_new(evthr_init_cb init_cb, void * args) {
     evthr_t * thread;
     int       fds[2];
 
@@ -254,14 +265,14 @@ evthr_new(void * args, int proc_to_use) {
         return NULL;
     }
 
-    thread->stat_lock   = malloc(sizeof(pthread_mutex_t));
-    thread->rlock       = malloc(sizeof(pthread_mutex_t));
-    thread->lock        = malloc(sizeof(pthread_mutex_t));
-    thread->thr         = malloc(sizeof(pthread_t));
-    thread->args        = args;
-    thread->rdr         = fds[0];
-    thread->wdr         = fds[1];
-    thread->proc_to_use = proc_to_use;
+    thread->stat_lock = malloc(sizeof(pthread_mutex_t));
+    thread->rlock     = malloc(sizeof(pthread_mutex_t));
+    thread->lock      = malloc(sizeof(pthread_mutex_t));
+    thread->thr       = malloc(sizeof(pthread_t));
+    thread->init_cb   = init_cb;
+    thread->arg       = args;
+    thread->rdr       = fds[0];
+    thread->wdr       = fds[1];
 
     if (pthread_mutex_init(thread->lock, NULL)) {
         evthr_free(thread);
@@ -422,7 +433,7 @@ evthr_pool_defer(evthr_pool_t * pool, evthr_cb cb, void * arg) {
 } /* evthr_pool_defer */
 
 evthr_pool_t *
-evthr_pool_new(int nthreads, void * shared) {
+evthr_pool_new(int nthreads, evthr_init_cb init_cb, void * shared) {
     evthr_pool_t * pool;
     int            i;
 
@@ -434,15 +445,13 @@ evthr_pool_new(int nthreads, void * shared) {
         return NULL;
     }
 
-    pool->nprocs   = _evthr_get_num_procs();
     pool->nthreads = nthreads;
     TAILQ_INIT(&pool->threads);
 
     for (i = 0; i < nthreads; i++) {
         evthr_t * thread;
-        int       proc = i % pool->nprocs;
 
-        if (!(thread = evthr_new(shared, proc))) {
+        if (!(thread = evthr_new(init_cb, shared))) {
             evthr_pool_free(pool);
             return NULL;
         }
@@ -466,7 +475,7 @@ evthr_pool_start(evthr_pool_t * pool) {
             return -1;
         }
 
-        usleep(300);
+        usleep(5000);
     }
 
     return 0;
